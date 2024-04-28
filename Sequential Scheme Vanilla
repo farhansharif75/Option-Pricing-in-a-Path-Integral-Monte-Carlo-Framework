@@ -1,0 +1,187 @@
+from multiprocessing import Pool
+import multiprocessing as mp
+import numpy as np
+from numpy.random import Generator, MT19937
+from scipy import optimize
+from scipy.special import expit
+import matplotlib.pyplot as plt
+from memory_profiler import profile
+import time as t
+from numba import jit, prange
+import random as rd
+from datetime import datetime
+import decimal
+decimal.getcontext().prec = 20
+#%%
+#@jit(nopython = True)
+def action(path, r, sigma, dt, tau, initial_price):
+    mu = r-0.5*sigma**2
+    x_dot = np.diff(path)/dt
+    #x_dot = np.zeros(len(path)-1)
+    #for i in range(len(path)-1):
+    #    x_dot[i] = (path[i+1]-path[i])/dt
+    #lagrangian = (x_dot-mu)**2/(2*sigma**2)
+    #lagrangian = tau*(np.append(0,x_dot)+(path-initial_price)/(2*tau)-mu/np.sqrt(tau))**2/(2*sigma**2)
+    lagrangian = ((x_dot-mu)**2)/(2*sigma**2)
+    if len(lagrangian)>1:
+        action = np.trapz(lagrangian, dx = dt)
+    else:
+        action = lagrangian*dt
+    return action
+#%%
+#@jit(nopython = True)
+def autocorrelate(O):
+    #T = np.correlate(O, O, 'full')
+    #print(T)
+    #T0 = np.correlate(O, O)
+    #print(T0)
+    #return T/T0
+    #  Compute autocorrelation using FFT
+    n = len(O)
+    f = np.fft.fft(O - np.mean(O), n*2)
+    acf = np.fft.ifft(f * np.conjugate(f))[:n].real
+    acf /= acf[0]
+    return acf
+#%%
+@jit(nopython = True)
+def integrated_act(acf, T_max):
+    tau_int = 0.5 + np.sum(acf[:T_max])
+    return tau_int
+#%%
+#@jit(nopython = True)
+def double_exp(theta,a_1,a_2,t_1,t_2):
+    log_term1 = -theta/t_1
+    log_term2 = -theta/t_2
+    double_exp_func = a_1*np.exp(log_term1)+a_2*np.exp(log_term2)
+    return double_exp_func
+#%%
+#@jit(nopython = True)
+def gauss_fit(x, a, b, c):
+    gauss = a*np.exp(-(x-b)**2 / (2*c**2))
+    return gauss
+#%%
+#@profile
+@jit(nopython = True)
+def path_action_minimiser_V1(data, sweeps, tolerance, sigma, r, price, n_1, n_2):
+    T = 1
+    accept_path_list = np.zeros((sweeps+1, len(data[1])))
+    accept_path_list[0] = data[1]
+    for i in range(sweeps):
+        path_choice_1 = accept_path_list[i].copy()
+        N_accept = 0
+        num_perturbations = 0
+        perturbations = np.array([0]+[rd.uniform(-tolerance, tolerance) for _ in range(len(accept_path_list[i])-1)])
+        for j in range(1,len(accept_path_list[i])):
+            num_perturbations += 1
+            changes = path_choice_1[j]+perturbations[j] 
+            if j == len(accept_path_list[i])-1:
+                segment = accept_path_list[i][j-1:j+1]
+                delta_actions = (changes-segment[1])/(2*sigma**2)*((changes+segment[1]-2*segment[0])/(data[0][j]-data[0][j-1])-2*mu)
+            else:
+                segment = accept_path_list[i][j-1:j+2]
+                delta_actions = (changes-segment[1])/(sigma**2*(data[0][j]-data[0][j-1]))*(changes+segment[1]-segment[0]-segment[2])
+            p_primes = np.exp(-delta_actions/T)
+            if p_primes > 1:
+                p_primes = 1
+            if rd.uniform(0,1) <= p_primes:
+                N_accept += 1
+                path_choice_1[j] = changes
+        accept_path_list[i+1] = path_choice_1
+        #if i<int(n_1):
+        #    T = 1/(0.3+np.log(1+1e-4*i))
+        #    temperatures[i+1] = T
+        #    if N_accept != 0:
+        #        accept_ratio = N_accept/num_perturbations
+        #        tolerance = tolerance*accept_ratio/0.7
+        #        accept_ratios[i] = accept_ratio
+        #        tolerance_list[i] = tolerance
+        #if i == int(n_1):
+        #    T_switch = T
+        #    print(T_switch)
+        #    temperatures[i+1] = T_switch
+        #if  (int(n_1)<i and i<int(n_2)):
+        #    T = T_switch*0.99**(i-n_1)
+        #    temperatures[i+1] = T
+        #    if N_accept != 0:
+        #        accept_ratio = N_accept/num_perturbations
+        #        tolerance = tolerance*accept_ratio/0.7
+        #        accept_ratios[i] = accept_ratio
+        #        tolerance_list[i] = tolerance
+        if i >= int(n_2):
+            T = 1
+            if N_accept != 0:
+                accept_ratio = N_accept/num_perturbations
+                tolerance = tolerance*accept_ratio/0.7
+        if i%10000 == 0:
+            print('current iteration', i)  
+    return accept_path_list, tolerance#, tolerance_list, accept_ratios, temperatures #, accept_path_list_anti
+#%%
+strike = 40
+simulation_counter = 0
+r = 0.03 
+sigma = 0.2
+x0 = np.log(36)
+mu = r-0.5*sigma**2
+time = np.linspace(0,1,120)
+T = 1
+tolerance = 0.01
+t_corr = 120
+#%%
+batch_counter = 0
+classical_path = mu*time+x0
+initial_paths = classical_path + np.array([0]+[rd.uniform(-0.0001, 0.0001) for j in range(len(classical_path)-1)])
+#%%
+simulation_counter += 1
+for i in range(8):
+    batch_counter += 1
+    start = t.time()
+    data = np.array([time, initial_paths])
+    a = path_action_minimiser_V1(data, 5000000, tolerance, sigma, r, x0,-1, 0)
+    tolerance = a[1]
+    b = a[0][1::t_corr]
+    initial_paths = b[-1]
+    del a
+    filename = f"concat_no_transform_{simulation_counter}{batch_counter}.npy"
+    np.save(filename, b)
+    del filename, b
+    print('simulation count:', simulation_counter)
+    print('batches generated:', batch_counter)
+    execution = t.time() - start
+    print('Time taken to run (seconds):', execution)
+#%%
+'''N_list = [30,60,90,120]
+times = []
+for i in range(len(N_list)):
+    times.append(np.linspace(0,1,N_list[i]))
+#%%
+simulation_counter = 0
+for i in range(len(N_list)):
+    classical_path = mu*times[i]+x0
+    initial_paths = classical_path + np.array([0]+[rd.uniform(-0.001, 0.001) for j in range(len(classical_path)-1)])
+    data = np.array([times[i], initial_paths])
+    a = path_action_minimiser_V1(data, 8000000, tolerance, sigma, r, x0,-1, 0)
+    b = a[0][1::t_corr]
+    del a
+    np.save(f'concat_no_transform_N{N_list[i]}.npy', b)
+    del b
+    simulation_counter += 1
+#%%
+#time = np.linspace(0,1,30)
+#time = np.linspace(0,1,60)
+#time = np.linspace(0,1,90)
+#time = np.linspace(0,1,15)
+#classical_path = mu*time+x0
+#plt.plot(classical_path, label = 'classical path', linestyle = 'dashed', color = 'black')
+#initial_path1 = classical_path + np.array([0]+[rd.uniform(-0.001, 0.001) for j in range(len(classical_path)-1)])
+#initial_path2 = classical_path + np.array([0]+[rd.uniform(-0.001, 0.001) for j in range(len(classical_path)-1)])
+#initial_path3 = classical_path + np.array([0]+[rd.uniform(-0.001, 0.001) for j in range(len(classical_path)-1)])
+#plt.plot(initial_path1, label = 'Path 1')
+#plt.plot(initial_path2, label = 'Path 1')
+#plt.plot(initial_path3, label = 'Path 1')
+#plt.xlabel('Time Lattice Points')
+#plt.title('Semi-cold Start Initialisation')
+#plt.ylabel('$x$ (arbitrary units)')
+#plt.tight_layout()
+#plt.legend()
+#plt.show()'''
+#%%
