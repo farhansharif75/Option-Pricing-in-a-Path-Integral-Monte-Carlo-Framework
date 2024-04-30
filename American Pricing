@@ -1,0 +1,123 @@
+from multiprocessing import Pool
+import multiprocessing as mp
+import numpy as np
+from numpy.random import Generator, MT19937
+from scipy import optimize
+import matplotlib.pyplot as plt
+from memory_profiler import profile
+import time as to
+from numba import jit, prange
+import random as rd
+from datetime import datetime
+import math
+#%%
+#@jit(nopython=True)
+def price_am(K, data, r, T):
+    M = len(data[0])
+    dt = T/M
+    df = math.exp(-r * dt)
+    S = np.transpose(np.exp(data[1:]))
+
+    # Stock Price Paths 
+    
+    S[0] = 36
+    t = [i*dt for i in range(len(S))]
+
+    h = np.maximum(K - S, 0)
+    # Present Value Vector (Initialization)
+    V = h[-1]
+    # American Option Valuation by Backwards Induction 
+    for j in range(M - 1, 0, -1): 
+        rg = np.polyfit(S[j], V * df, 5) 
+        C = np.polyval(rg, S[j]) # continuation values 
+        V = np.where(h[j] > C, h[j], V * df) # exercise decision
+    V0 = df * np.sum(V) / len(data[1:]) # LSM estimator
+    #print("American put option value %5.3f" % V0)
+    return V0
+#%%
+total_paths = {}
+
+for i in range(1, 11):
+    concat = [np.load(f'concat_transform_rd_{i}{j}.npy') for j in range(1, 9)]
+    
+    total_paths[f'total_paths{i}'] = np.concatenate(concat)
+    del concat
+#%%
+
+#Am_price = price_am(40, total_paths['total_paths1'], 0.03, 1)
+#%%
+#print(Am_price)
+#%%
+print(len(total_paths['total_paths1']))
+#%%
+#price_array_reg = []
+pr1 = []
+pr2 = []
+pr3 = []
+pr4 = []
+pr5 = []
+pr6 = []
+pr7 = []
+pr8 = []
+pr9 = []
+pr10 = []
+#%%
+for i in range(2, len(total_paths['total_paths1']), 9523):
+    print('round =', i)
+    
+    price_1 = price_am(40, total_paths['total_paths1'][:i], 0.03, 1)
+    price_2 = price_am(40, total_paths['total_paths2'][:i], 0.03, 1)
+    price_3 = price_am(40, total_paths['total_paths3'][:i], 0.03, 1)
+    price_4 = price_am(40, total_paths['total_paths4'][:i], 0.03, 1)
+    price_5 = price_am(40, total_paths['total_paths5'][:i], 0.03, 1)
+    price_6 = price_am(40, total_paths['total_paths6'][:i], 0.03, 1)
+    price_7 = price_am(40, total_paths['total_paths7'][:i], 0.03, 1)
+    price_8 = price_am(40, total_paths['total_paths8'][:i], 0.03, 1)
+    price_9 = price_am(40, total_paths['total_paths9'][:i], 0.03, 1)
+    price_10 = price_am(40, total_paths['total_paths10'][:i], 0.03, 1)
+    
+    pr1.append(price_1)
+    pr2.append(price_2)
+    pr3.append(price_3)
+    pr4.append(price_4)
+    pr5.append(price_5)
+    pr6.append(price_6)
+    pr7.append(price_7)
+    pr8.append(price_8)
+    pr9.append(price_9)
+    pr10.append(price_10)
+#%%
+
+price_1 = price_am(40, total_paths['total_paths1'], 0.03, 1)
+price_2 = price_am(40, total_paths['total_paths2'], 0.03, 1)
+price_3 = price_am(40, total_paths['total_paths3'], 0.03, 1)
+price_4 = price_am(40, total_paths['total_paths4'], 0.03, 1)
+price_5 = price_am(40, total_paths['total_paths5'], 0.03, 1)
+price_6 = price_am(40, total_paths['total_paths6'], 0.03, 1)
+price_7 = price_am(40, total_paths['total_paths7'], 0.03, 1)
+price_8 = price_am(40, total_paths['total_paths8'], 0.03, 1)
+price_9 = price_am(40, total_paths['total_paths9'], 0.03, 1)
+price_10 = price_am(40, total_paths['total_paths10'], 0.03, 1)
+
+pr1.append(price_1)
+pr2.append(price_2)
+pr3.append(price_3)
+pr4.append(price_4)
+pr5.append(price_5)
+pr6.append(price_6)
+pr7.append(price_7)
+pr8.append(price_8)
+pr9.append(price_9)
+pr10.append(price_10)
+#%%
+np.save('american_price_rd_1.npy', np.array(pr1))
+np.save('american_price_rd_2.npy', np.array(pr2))
+np.save('american_price_rd_3.npy', np.array(pr3))
+np.save('american_price_rd_4.npy', np.array(pr4))
+np.save('american_price_rd_5.npy', np.array(pr5))
+np.save('american_price_rd_6.npy', np.array(pr6))
+np.save('american_price_rd_7.npy', np.array(pr7))
+np.save('american_price_rd_8.npy', np.array(pr8))
+np.save('american_price_rd_9.npy', np.array(pr9))
+np.save('american_price_rd_10.npy', np.array(pr10))
+#%%
