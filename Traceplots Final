@@ -1,0 +1,102 @@
+
+from multiprocessing import Pool
+import multiprocessing as mp
+import numpy as np
+from numpy.random import Generator, MT19937
+from scipy import optimize
+import matplotlib.pyplot as plt
+from memory_profiler import profile
+import time as t
+from numba import jit, prange
+import random as rd
+from datetime import datetime
+#%%
+no_transform_seq = np.load('average_payoff_no_transform_seq.npy')
+no_transform_seq_std = np.load('standev_no_transform_seq.npy')
+#%%
+transform_seq = np.load('average_payoff_transform_seq.npy')
+transform_seq_std = np.load('standev_transform_seq.npy')
+#%%
+lengths_avg = np.array([len(no_transform_seq), len(transform_seq)])
+lengths_std = np.array([len(no_transform_seq_std),len(transform_seq_std)])
+#%%
+min_lengths_avg = min(lengths_avg)
+min_lengths_std = min(lengths_std)
+print('Average min length:', min_lengths_avg, 'Standev min length:', min_lengths_std)
+#%%
+plt.figure(dpi=1000) 
+plt.plot(no_transform_seq[:min_lengths_avg], color = 'Blue', label = 'Average, No Transform, Seq.', alpha = 0.9)
+plt.fill_between(range(len(no_transform_seq[:min_lengths_avg])), no_transform_seq[:min_lengths_avg] - no_transform_seq_std[:min_lengths_avg], no_transform_seq[:min_lengths_avg] + no_transform_seq_std[:min_lengths_avg], color ='blue', alpha=0.23, label='±1 std. dev., No Transform, Seq.')
+
+plt.plot(transform_seq[:min_lengths_avg], color = 'Red', label = 'Average, Transform, Seq.', alpha = 0.9)
+plt.fill_between(range(len(transform_seq[:min_lengths_avg])), transform_seq[:min_lengths_avg] - transform_seq_std[:min_lengths_avg], transform_seq[:min_lengths_avg] + transform_seq_std[:min_lengths_avg], color ='Red', alpha=0.3, label='±1 std. dev., Transform, Seq.')
+
+plt.axhline(4.6, color = 'black', linestyle = 'dashed', label = 'Result from BSPF', alpha = 1)
+
+plt.legend(loc ='upper right')
+plt.ylim(0,10)
+plt.title('Trace Plot - Sequential Scheme')
+plt.xlabel('# unbiased thermalised paths')
+plt.ylabel('Option Price')
+plt.tight_layout()
+plt.grid()
+plt.show()
+#%%
+plt.figure(dpi=1000) 
+plt.plot(no_transform_seq[min_lengths_avg-1000:min_lengths_avg], color = 'Blue', label = 'Average, No Transform, Seq.', alpha = 0.9)
+plt.fill_between(range(len(no_transform_seq[min_lengths_avg-1000:min_lengths_avg])), no_transform_seq[min_lengths_avg-1000:min_lengths_avg] - no_transform_seq_std[min_lengths_avg-1000:min_lengths_avg], no_transform_seq[min_lengths_avg-1000:min_lengths_avg] + no_transform_seq_std[min_lengths_avg-1000:min_lengths_avg], color ='blue', alpha=0.23, label='±1 std. dev., No Transform, Seq.')
+
+plt.plot(transform_seq[min_lengths_avg-1000:min_lengths_avg], color = 'Red', label = 'Average, Transform, Seq.', alpha = 0.9)
+plt.fill_between(range(len(transform_seq[min_lengths_avg-1000:min_lengths_avg])), transform_seq[min_lengths_avg-1000:min_lengths_avg] - transform_seq_std[min_lengths_avg-1000:min_lengths_avg], transform_seq[min_lengths_avg-1000:min_lengths_avg] + transform_seq_std[min_lengths_avg-1000:min_lengths_avg], color ='Red', alpha=0.3, label='±1 std. dev., Transform, Seq.')
+
+plt.axhline(4.6, color = 'black', linestyle = 'dashed', label = 'Result from BSPF', alpha = 1)
+
+plt.xticks([0,200,400,600,800,1000], [333336-1000, 333336-800, 333336-600, 333336-400, 333336-200, 333336])
+plt.ylim(4.25,4.8)
+plt.title('Trace Plot - Sequential Scheme')
+plt.xlabel('# unbiased thermalised paths')
+plt.ylabel('Option Price')
+plt.tight_layout()
+plt.grid()
+plt.show()
+#%%
+print('No Transform, Seq., Final Payoff:', no_transform_seq[-1], 'pm', no_transform_seq_std[-1],'Difference from BSPF:', np.abs(4.6-no_transform_seq[-1])/no_transform_seq_std[-1], 'standard deviations')
+print('\n')
+print('Transform, Seq., Final Payoff:', transform_seq[-1], 'pm', transform_seq_std[-1],'Difference from BSPF:', np.abs(4.6-transform_seq[-1])/transform_seq_std[-1], 'standard deviations')
+#%%
+no_transform_rd = np.load('average_payoff_no_transform_rd.npy')
+no_transform_rd_std = np.load('standev_no_transform_rd.npy')
+#%%
+transform_rd = np.load('average_payoff_transform_rd.npy')
+transform_rd_std = np.load('standev_transform_rd.npy')
+#%%
+lengths_avg = np.array([len(no_transform_rd), len(transform_rd)])
+lengths_std = np.array([len(no_transform_rd_std),len(transform_rd_std)])
+#%%
+min_lengths_avg = min(lengths_avg)
+min_lengths_std = min(lengths_std)
+print('Average min length:', min_lengths_avg, 'Standev min length:', min_lengths_std)#
+#%%
+
+plt.figure(dpi=1000) 
+plt.plot(no_transform_rd[min_lengths_avg-1000:min_lengths_avg], color = 'Blue', label = 'Average, No Transform, Rd.', alpha = 0.9)
+plt.fill_between(range(len(no_transform_rd[min_lengths_avg-1000:min_lengths_avg])), no_transform_rd[min_lengths_avg-1000:min_lengths_avg] - no_transform_rd_std[min_lengths_avg-1000:min_lengths_avg], no_transform_rd[min_lengths_avg-1000:min_lengths_avg] + no_transform_rd_std[min_lengths_avg-1000:min_lengths_avg], color ='blue', alpha=0.23, label='±1 std. dev., No Transform, Rd.')
+
+plt.plot(transform_rd[min_lengths_avg-1000:min_lengths_avg], color = 'Red', label = 'Average, Transform, Rd.', alpha = 0.9)
+plt.fill_between(range(len(transform_rd[min_lengths_avg-1000:min_lengths_avg])), transform_rd[min_lengths_avg-1000:min_lengths_avg] - transform_rd_std[min_lengths_avg-1000:min_lengths_avg], transform_rd[min_lengths_avg-1000:min_lengths_avg] + transform_rd_std[min_lengths_avg-1000:min_lengths_avg], color ='Red', alpha=0.3, label='±1 std. dev., Transform, Rd.')
+
+plt.axhline(4.6, color = 'black', linestyle = 'dashed', label = 'Result from BSPF', alpha = 1)
+
+plt.xticks([0,200,400,600,800,1000], [333336-1000, 333336-800, 333336-600, 333336-400, 333336-200, 333336])
+plt.ylim(4.4, 4.9)
+plt.title('Trace Plot - Random-Choice Scheme')
+plt.xlabel('# unbiased thermalised paths')
+plt.ylabel('Option Price')
+plt.tight_layout()
+plt.grid()
+plt.show()
+#%%
+print('No Transform, Rd., Final Payoff:', no_transform_rd[-1], 'pm', no_transform_rd_std[-1],'Difference from BSPF:', np.abs(4.6-no_transform_rd[-1])/no_transform_rd_std[-1], 'standard deviations')
+print('\n')
+print('Transform, Rd., Final Payoff:', transform_rd[-1], 'pm', transform_rd_std[-1],'Difference from BSPF:', np.abs(4.6-transform_rd[-1])/transform_rd_std[-1], 'standard deviations')
+#%%
