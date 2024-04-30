@@ -1,0 +1,182 @@
+from multiprocessing import Pool
+import multiprocessing as mp
+import numpy as np
+from numpy.random import Generator, MT19937
+from scipy import optimize
+import matplotlib.pyplot as plt
+from memory_profiler import profile
+import time as t
+from numba import jit, prange
+import random as rd
+#%%
+payoff1 = np.load('american_price_nt_rd_1.npy')
+payoff2 = np.load('american_price_nt_rd_2.npy')
+payoff3 = np.load('american_price_nt_rd_3.npy')
+payoff4 = np.load('american_price_nt_rd_4.npy')
+payoff5 = np.load('american_price_nt_rd_5.npy')
+payoff6 = np.load('american_price_nt_rd_6.npy')
+payoff7 = np.load('american_price_nt_rd_7.npy')
+payoff8 = np.load('american_price_nt_rd_8.npy')
+payoff9 = np.load('american_price_nt_rd_9.npy')
+payoff10 = np.load('american_price_nt_rd_10.npy')
+#%%
+lengths = np.array([len(payoff1), len(payoff2), len(payoff3), len(payoff4), len(payoff5), len(payoff6), len(payoff7), len(payoff8), len(payoff9), len(payoff10)])
+print(lengths)
+min_length = min(lengths)
+print(min_length)
+#%%
+average_payoff = (payoff1[:min_length]+payoff2[:min_length]+payoff3[:min_length]+payoff4[:min_length]+payoff5[:min_length]+payoff6[:min_length]+payoff7[:min_length]+payoff8[:min_length]+payoff9[:min_length]+payoff10[:min_length])/10
+print(len(average_payoff))
+#%%
+#print(payoff4)
+#print(payoff10)
+#%%
+#print(average_payoff)
+print(payoff1[:min_length])
+print(payoff2[:min_length])
+print(payoff3[:min_length])
+print(np.count_nonzero(np.isnan(payoff4[:min_length])))
+print(payoff5[:min_length])
+print(payoff6[:min_length])
+print(payoff7[:min_length])
+print(payoff8[:min_length])
+print(payoff9[:min_length])
+print(np.count_nonzero(np.isnan(payoff10[:min_length])))
+#%%
+plt.axhline(4.86, color = 'black', linestyle = 'dashed', label = 'Binomial Tree', alpha = 1)
+plt.axhline(4.85, color = 'grey', linestyle = 'dotted', label = 'Finite Difference', alpha = 1)
+plt.plot(payoff1[:min_length], color = 'red', label = 'Sim 1', alpha = 0.2)
+plt.plot(payoff2[:min_length], color = 'blue', label = 'Sim 2', alpha = 0.2)
+plt.plot(payoff3[:min_length], color = 'purple', label = 'Sim 3', alpha = 0.2)
+plt.plot(payoff4[:min_length], color = 'brown', label = 'Sim 4', alpha = 0.2)
+plt.plot(payoff5[:min_length], label = 'Sim 5', alpha = 0.2)
+plt.plot(payoff6[:min_length], label = 'Sim 6', alpha = 0.2)
+plt.plot(payoff7[:min_length], label = 'Sim 7', alpha = 0.2)
+plt.plot(payoff8[:min_length], label = 'Sim 8', alpha = 0.2)
+plt.plot(payoff9[:min_length], label = 'Sim 9', alpha = 0.2)
+plt.plot(payoff10[:min_length], label = 'Sim 10', alpha = 0.2)
+plt.plot(average_payoff, color = 'black', label = 'Average, \n No Transform, \n Seq.', alpha = 1)
+plt.grid()
+plt.ylim(0,13)
+plt.legend(loc ='upper right', ncol = 2)
+plt.title('Averaged Trace Plot (Transform, Seq.)\n American Put')
+plt.xlabel('# unbiased thermalised paths')
+plt.ylabel('Option Price')
+plt.show()
+#%%
+plt.axhline(4.86, color = 'black', linestyle = 'dashed', label = 'Binomial Tree', alpha = 1)
+plt.axhline(4.85, color = 'grey', linestyle = 'dotted', label = 'Finite Difference', alpha = 1)
+plt.plot(payoff1[:min_length], color = 'red', label = 'Sim 1', alpha = 0.2)
+plt.plot(payoff2[:min_length], color = 'blue', label = 'Sim 2', alpha = 0.2)
+plt.plot(payoff3[:min_length], color = 'purple', label = 'Sim 3', alpha = 0.2)
+plt.plot(payoff4[:min_length], color = 'brown', label = 'Sim 4', alpha = 0.2)
+plt.plot(payoff5[:min_length], label = 'Sim 5', alpha = 0.2)
+plt.plot(payoff6[:min_length], label = 'Sim 6', alpha = 0.2)
+plt.plot(payoff7[:min_length], label = 'Sim 7', alpha = 0.2)
+plt.plot(payoff8[:min_length], label = 'Sim 8', alpha = 0.2)
+plt.plot(payoff9[:min_length], label = 'Sim 9', alpha = 0.2)
+plt.plot(payoff10[:min_length], label = 'Sim 10', alpha = 0.2)
+plt.plot(average_payoff, color = 'black', label = 'Average, \n Transform, \n Seq.', alpha = 1)
+plt.grid()
+plt.legend(loc ='upper right', ncol = 2)
+plt.title('Averaged Trace Plot (Transform, Seq.)\n American Put')
+plt.xlabel('# unbiased thermalised paths')
+plt.ylabel('Option Price')
+plt.show()
+np.save('average_payoff_am_no_transform_rd.npy', average_payoff)
+#%%
+#avg_no_transform = np.load('average_payoff_no_transform.npy')
+#avg_transform = np.load('average_payoff_transform.npy')
+#avg_no_transform = np.load('average_payoff_no_transform.npy')
+#%%
+#plt.axhline(4.6, color = 'gray', linestyle = 'dashed', label = 'Result from BSPF', alpha = 1)
+#plt.plot(avg_no_transform, color = 'red', label = 'No transform')
+#plt.plot(avg_transform, color = 'purple', label = 'Transform')
+#plt.plot(avg_no_transform, color = 'blue', label = 'Transform + AV')
+#plt.grid()
+#plt.legend()
+#plt.title('Comparison of Methods')
+#plt.xlabel('# unbiased thermalised paths')
+#plt.ylabel('Option Price')
+#plt.show()
+#%%
+
+standev = np.std(np.array([payoff1[:min_length], payoff2[:min_length] ,payoff3[:min_length],
+                           payoff4[:min_length], payoff5[:min_length], payoff6[:min_length], 
+                           payoff7[:min_length], payoff8[:min_length], payoff9[:min_length], 
+                           payoff10[:min_length]]), axis = 0)
+#%%
+np.save('standev_am_no_taransform_rd.npy', standev)
+#%%
+plt.plot(average_payoff, color = 'black', label = 'Average, Transform, Seq.', alpha = 1)
+plt.fill_between(range(len(average_payoff)), average_payoff - standev, average_payoff + standev, color='blue', alpha=0.2, label='±1 std. dev.')
+plt.axhline(4.86, color = 'black', linestyle = 'dashed', label = 'Binomial Tree', alpha = 1)
+plt.axhline(4.85, color = 'grey', linestyle = 'dotted', label = 'Finite Difference', alpha = 1)
+plt.grid()
+#plt.ylim(0,7)
+plt.legend(loc ='upper right')
+plt.title('Averaged Trace Plot (Transform, Seq.)\n American Put')
+plt.xlabel('# unbiased thermalised paths')
+plt.ylabel('Option Price')
+plt.show()
+#%%
+print(average_payoff[-1])
+#%%
+print('% Difference from Binomial Model:',np.abs(average_payoff[-1] - 4.86)/(4.86+average_payoff[-1])*100)
+print('% Difference from Finite-Difference :',np.abs(average_payoff[-1] - 4.85)/(4.85+average_payoff[-1])*100)
+#%%
+no_transform = np.load('average_payoff_no_transform.npy')
+no_transform_std = np.load('standev_no_transform.npy')
+#%%
+transform = np.load('average_payoff_transform.npy')
+transform_std = np.load('standev_transform.npy')
+#%%
+transform_rnd = np.load('average_payoff_transform_rd.npy')
+transform_std_rnd = np.load('standev_transform_rd.npy')
+#%%
+no_transform_rnd = np.load('average_payoff_no_transform_rd.npy')
+no_transform_std_rnd = np.load('standev_no_transform_rd.npy')
+#%%
+lengths1 = np.array([len(no_transform), len(no_transform_std)])
+lengths2 = np.array([len(transform), len(transform_std)])
+lengths3 = np.array([len(no_transform_rnd), len(no_transform_rnd)])
+length4 = np.array([len(transform_rnd), len(no_transform_std_rnd)])
+#length5 = np.array([len(transform_mc), len(transform_mc_std)])
+#length6 = np.array([len(transform_av), len(transform_av_std)])
+min_length1 = min(lengths1)
+#min_length2 = min(lengths2)
+#min_length3 = min(lengths3)
+#%%
+#print(min_length1, min_length3)
+#%%
+plt.plot(no_transform[:min_length1], color = 'red', label = 'Average, No Transform, Seq.', alpha = 1)
+plt.fill_between(range(len(no_transform[:min_length1])), no_transform[:min_length1] - no_transform_std[:min_length1], no_transform[:min_length1] + no_transform_std[:min_length1], color='red', alpha=0.2, label='±1 std. dev. No Transform, Seq.')
+
+plt.plot(transform, color = 'blue', label = 'Average, Transform, Seq.', alpha = 1)
+plt.fill_between(range(len(transform[:min_length1])), transform[:min_length1] - transform_std[:min_length1], transform[:min_length1] +transform_std[:min_length1], color='blue', alpha=0.2, label='±1 std. dev. Transform, Seq.')
+
+#plt.plot(no_transform_rnd[:min_length1], color = 'red', label = 'Average, No Transform, Rnd.', alpha = 1)
+#plt.fill_between(range(len(no_transform_rnd[:min_length1])), no_transform_rnd[:min_length1] - no_transform_std_rnd[:min_length1], no_transform_rnd[:min_length1] + no_transform_std_rnd[:min_length1], color='red', alpha=0.2, label='±1 std. dev. No Transform, Rnd.')
+
+#plt.plot(transform_rnd, color = 'blue', label = 'Average, Transform, Rnd.', alpha = 1)
+#plt.fill_between(range(len(transform_rnd[:min_length1])), transform_rnd[:min_length1] - transform_std_rnd[:min_length1], transform_rnd[:min_length1] +transform_std_rnd[:min_length1], color='blue', alpha=0.2, label='±1 std. dev. Transform, Rnd.')
+
+#plt.plot(no_transform_av, color = 'blue', label = 'Average, No Transform + AV', alpha = 1)
+#plt.fill_between(range(len(no_transform_av[:min_length1])), no_transform_av[:min_length1] - no_transform_av_std[:min_length1], no_transform_av[:min_length1] +no_transform_av_std[:min_length1], color='blue', alpha=0.2, label='±1 std. dev. No Transform + AV')
+
+#plt.plot(no_transform_mc, color = 'blue', label = 'Average, No Transform + MC', alpha = 1)
+#plt.fill_between(range(len(no_transform_mc[:min_length1])), no_transform_mc[:min_length1] - no_transform_mc_std[:min_length1], no_transform_mc[:min_length1] +no_transform_mc_std[:min_length1], color='blue', alpha=0.2, label='±1 std. dev. No Transform + MC')
+
+#plt.plot(no_transform_rd_av, color = 'blue', label = 'Average, Transform + AV', alpha = 1)
+#plt.fill_between(range(len(transform_av[:min_length1])), transform_av[:min_length1] - transform_av_std[:min_length1], transform_av[:min_length1] + transform_av_std[:min_length1], color='blue', alpha=0.2, label='±1 std. dev. Transform + AV')
+
+#plt.plot(transform_mc, color = 'blue', label = 'Average, Transform + MC', alpha = 1)
+#plt.fill_between(range(len(transform_mc[:min_length1])), transform_mc[:min_length1] - transform_mc_std[:min_length1], transform_mc[:min_length1] + transform_mc_std[:min_length1], color='blue', alpha=0.2, label='±1 std. dev. Transform + MC')
+
+plt.axhline(4.6, color = 'gray', linestyle = 'dashed', label = 'Result from BSPF', alpha = 1)
+plt.grid()
+plt.legend(loc ='lower right')
+plt.title('Averaged Trace Plot, Seq. Scheme')
+plt.xlabel('# unbiased thermalised paths')
+plt.ylabel('Option Price')
+plt.show()
