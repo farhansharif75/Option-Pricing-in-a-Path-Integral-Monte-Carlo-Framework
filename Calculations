@@ -1,0 +1,153 @@
+from multiprocessing import Pool
+import multiprocessing as mp
+import numpy as np
+from numpy.random import Generator, MT19937
+from scipy import optimize
+import matplotlib.pyplot as plt
+from memory_profiler import profile
+import time as t
+from numba import jit, prange
+import random as rd
+import math
+#%%
+#@jit(nopython = True)
+def optionprice_EU_put(path_list, r, T, strike):
+    payoffs = np.maximum(strike-np.exp(path_list[:,-1]), 0)
+    cumulative_payoffs = np.exp(-r*T)*np.cumsum(payoffs)/np.arange(1, len(path_list)+1)
+    #result = np.exp(-r*tau)*(payoff)
+    return cumulative_payoffs
+#%%
+def gauss_fit(x, a, b, c):
+    gauss = a*np.exp(-(x-b)**2 / (2*c**2))
+    return gauss
+#%%
+strike = 40
+simulation_counter = 0
+r = 0.03 
+sigma = 0.2
+x0 = np.log(36)
+mu = r-0.5*sigma**2
+time = np.linspace(0,1,200)
+#tau = np.linspace(0,1,120)+40/120
+T = 1
+#%%
+total_list = []
+for i in range(1,11):
+    concat1 = np.load(f'concat_no_transform_rd_{i}1.npy')
+    concat2 = np.load(f'concat_no_transform_rd_{i}2.npy')
+    concat3 = np.load(f'concat_no_transform_rd_{i}3.npy')
+    concat4 = np.load(f'concat_no_transform_rd_{i}4.npy')
+    concat5 = np.load(f'concat_no_transform_rd_{i}5.npy')
+    concat6 = np.load(f'concat_no_transform_rd_{i}6.npy')
+    concat7 = np.load(f'concat_no_transform_rd_{i}7.npy')
+    concat8 = np.load(f'concat_no_transform_rd_{i}8.npy')
+    #concat9 = np.load(f'concat_no_transform_rd_{i}9.npy')
+    #concat10 = np.load(f'concat_no_transform_rd_{i}10.npy')
+    total_paths1 = np.concatenate([concat1, concat2, concat3, concat4, concat5, concat6, concat7, concat8])#, concat9, concat10])
+    total_list.append(total_paths1)
+    del concat1, concat2, concat3, concat4, concat5, concat6, concat7, concat8#, concat9, concat10
+    bin_heights, bin_borders, _ = plt.hist(total_paths1[:,-1], bins='auto', alpha = 1, color = 'blue')
+    bin_centers = bin_borders[:-1] + np.diff(bin_borders) / 2
+    plt.title(f'Final Price Distribution - Sim. {i}')
+    plt.xlabel('Final underlying asset price ($)')
+    plt.ylabel('Frequency')
+    plt.show()
+    popt_gauss, pcov_gauss = optimize.curve_fit(gauss_fit, bin_centers, bin_heights, maxfev = 100000)
+    x_interval_for_fit = np.linspace(bin_borders[0], bin_borders[-1], 10000)
+    plt.plot(bin_centers, bin_heights, 'x', label = 'bin centres', color = 'blue')
+    plt.plot(x_interval_for_fit, gauss_fit(x_interval_for_fit, *popt_gauss), label='fit', color = 'black')
+    plt.axvline(x = popt_gauss[1], ymin = 0, ymax = 1, color = 'red', linestyle = 'dashed', label = 'mean price')
+    plt.axvline(x = np.log(36), ymin = 0, ymax = 1, color = 'grey', linestyle = 'dotted', label = 'initial price')
+    plt.axvline(x = np.log(40), ymin = 0, ymax = 1, color = 'green', linestyle = 'dashed', label = 'strike')
+    plt.legend()
+    plt.grid()
+    plt.title(f'Final Price Distribution - Sim. {i}')
+    plt.xlabel('Final underlying asset price ($)')
+    plt.ylabel('Frequency')
+    plt.show()
+    print(len(total_paths1[:,-1]))
+    print('Mean:',popt_gauss[1])
+    print('Variance:', popt_gauss[2]**2)
+    payoff_list = optionprice_EU_put(total_paths1, r, T, strike)
+    plt.plot(payoff_list, color = 'blue', alpha = 0.5, label = 'Option Price from Simulation')
+    plt.grid()
+    plt.xlabel('# unbiased thermalised paths')
+    plt.ylabel('option price')
+    plt.axhline(y = 4.6, color = 'black', linestyle = 'dashed', label = 'Result from BSPF')
+    plt.legend()
+    plt.title('Option price trace plot')
+    plt.show()
+    print('Simulation processed:', i)
+    #np.save(f'payoff{i}_transform.npy', payoff_list)
+    print(np.count_nonzero(np.isnan(payoff_list)))
+#%%
+concat1 = np.load('concat_no_transform_N30.npy')
+concat2 = np.load('concat_no_transform_N60.npy')
+concat3 = np.load('concat_no_transform_N90.npy')
+concat4 = np.load('concat_no_transform_N120.npy')
+#%%
+bin_heights, bin_borders, _ = plt.hist(concat1[:,-1], bins='auto', alpha = 1, color = 'blue')
+bin_centers = bin_borders[:-1] + np.diff(bin_borders) / 2
+plt.title('Final Price Distribution')
+plt.xlabel('Final underlying asset price ($)')
+plt.ylabel('Frequency')
+plt.show()
+#%%
+popt_gauss, pcov_gauss = optimize.curve_fit(gauss_fit, bin_centers, bin_heights, maxfev = 100000)
+x_interval_for_fit = np.linspace(bin_borders[0], bin_borders[-1], 10000)
+plt.plot(bin_centers, bin_heights, 'x', label = 'bin centres', color = 'blue')
+plt.plot(x_interval_for_fit, gauss_fit(x_interval_for_fit, *popt_gauss), label='fit', color = 'black')
+plt.axvline(x = popt_gauss[1], ymin = 0, ymax = 1, color = 'red', linestyle = 'dashed', label = 'mean price')
+plt.axvline(x = np.log(36), ymin = 0, ymax = 1, color = 'grey', linestyle = 'dotted', label = 'initial price')
+plt.axvline(x = np.log(40), ymin = 0, ymax = 1, color = 'green', linestyle = 'dashed', label = 'strike')
+plt.legend()
+plt.grid()
+plt.title('Final Price Distribution, N = 30')
+plt.xlabel('Final underlying asset price ($)')
+plt.ylabel('Frequency')
+plt.show()
+#%%
+payoffN30 = optionprice_EU_put(concat1, r, T, strike)
+payoffN60 = optionprice_EU_put(concat2, r, T, strike)
+payoffN90 = optionprice_EU_put(concat3, r, T, strike)
+payoffN120 = optionprice_EU_put(concat4, r, T, strike)
+#%%
+plt.plot(payoffN30, alpha = 1, label = 'N = 30')
+plt.plot(payoffN60, alpha = 1, label = 'N = 60')
+plt.plot(payoffN90, alpha = 1, label = 'N = 90')
+plt.plot(payoffN120,  alpha = 1, label = 'N = 120')
+plt.grid()
+plt.xlabel('# unbiased thermalised paths')
+plt.ylabel('option price')
+plt.axhline(y = 4.6, color = 'black', linestyle = 'dashed', label = 'Result from BSPF')
+plt.legend()
+plt.title('Option price trace plot')
+plt.show()
+#%%
+print(np.concatenate(total_list))
+#%%
+concat_total = np.concatenate(total_list)
+bin_heights, bin_borders, _ = plt.hist(concat_total[:,-1], bins='auto', alpha = 1, color = 'blue')
+bin_centers = bin_borders[:-1] + np.diff(bin_borders) / 2
+plt.title('Final Price Distribution')
+plt.xlabel('Final underlying asset price ($)')
+plt.ylabel('Frequency')
+plt.show()
+#%%
+popt_gauss, pcov_gauss = optimize.curve_fit(gauss_fit, bin_centers, bin_heights, maxfev = 100000)
+x_interval_for_fit = np.linspace(bin_borders[0], bin_borders[-1], 10000)
+plt.plot(bin_centers, bin_heights, 'x', label = 'bin centres', color = 'blue')
+plt.plot(x_interval_for_fit, gauss_fit(x_interval_for_fit, *popt_gauss), label='fit', color = 'black')
+plt.axvline(x = popt_gauss[1], ymin = 0, ymax = 1, color = 'red', linestyle = 'dashed', label = 'mean price')
+plt.axvline(x = np.log(36), ymin = 0, ymax = 1, color = 'grey', linestyle = 'dotted', label = 'initial price')
+plt.axvline(x = np.log(40), ymin = 0, ymax = 1, color = 'green', linestyle = 'dashed', label = 'strike')
+plt.legend()
+plt.grid()
+plt.title('Final Price Distribution - Random-Choice Scheme')
+plt.xlabel('Final underlying asset price ($)')
+plt.ylabel('Frequency')
+plt.show()
+#%%
+print('Mean:',popt_gauss[1])
+print('Standard deviation:', popt_gauss[2])
+#%%
