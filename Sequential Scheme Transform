@@ -1,0 +1,143 @@
+from multiprocessing import Pool
+import multiprocessing as mp
+import numpy as np
+from numpy.random import Generator, MT19937
+from scipy import optimize
+import matplotlib.pyplot as plt
+from memory_profiler import profile
+import time as t
+from numba import jit, prange
+import random as rd
+from datetime import datetime
+#%%
+#@jit(nopython = True)
+def action(path, r, sigma, dt, tau, initial_price):
+    mu = r-0.5*sigma**2
+    x_dot = np.diff(path)/dt
+    #x_dot = np.zeros(len(path)-1)
+    #for i in range(len(path)-1):
+    #    x_dot[i] = (path[i+1]-path[i])/dt
+    #lagrangian = (x_dot-mu)**2/(2*sigma**2)
+    lagrangian = tau*(np.append(0,x_dot)+(path-initial_price)/(2*tau)-mu/np.sqrt(tau))**2/(2*sigma**2)
+    if len(lagrangian)>1:
+        action = np.trapz(lagrangian, dx = dt)
+    else:
+        action = lagrangian*dt
+    return action
+#%%
+#@jit(nopython = True)
+def autocorrelate(O):
+    #T = np.correlate(O, O, 'full')
+    #print(T)
+    #T0 = np.correlate(O, O)
+    #print(T0)
+    #return T/T0
+    #  Compute autocorrelation using FFT
+    n = len(O)
+    f = np.fft.fft(O - np.mean(O), n*2)
+    acf = np.fft.ifft(f * np.conjugate(f))[:n].real
+    acf /= acf[0]
+    return acf
+#%%
+#@jit(nopython = True)
+def double_exp(theta,a_1,a_2,t_1,t_2):
+    double_exp_func = a_1*np.exp(-(theta)/t_1)+a_2*np.exp(-(theta)/t_2)
+    return double_exp_func
+#%%
+@jit(nopython = True)
+def integrated_act(acf, T_max):
+    tau_int = 0.5 + np.sum(acf[:T_max])
+    return tau_int
+#%%
+#@jit(nopython = True)
+def gauss_fit(x, a, b, c):
+    gauss = a*np.exp(-(x-b)**2 / (2*c**2))
+    return gauss
+#%%
+#@profile
+@jit(nopython = True)
+def path_action_minimiser_V1(data, sweeps, tolerance, sigma, r, price, n_1, n_2):
+    T = 1
+    #T_switch = 0
+    accept_path_list = np.zeros((sweeps+1, len(data[1])))
+    accept_path_list[0] = data[1]
+    for i in range(sweeps):
+        path_choice_1 = accept_path_list[i].copy()
+        N_accept = 0
+        num_perturbations = 0
+        #indices = np.array([0]+[rd.randint(1, len(accept_path_list[i])-1) for _ in range(len(accept_path_list[i])-1)])
+        perturbations = np.array([0]+[rd.uniform(-tolerance, tolerance) for _ in range(len(accept_path_list[i])-1)])
+        for j in range(1,len(accept_path_list[-1])):
+            num_perturbations += 1
+            changes = path_choice_1[j]+perturbations[j]
+            if j == len(accept_path_list[-1])-1:
+                segment = accept_path_list[i][j-1:j+1]
+                delta_actions = 0.25*(changes-segment[1])/(sigma**2) * (2*data[0][j]+(data[0][j]-data[0][j-1])) * ( (changes + segment[1]-2*segment[0])/(data[0][j]-data[0][j-1])+(changes+segment[1]-2*price)/(2*data[0][j])-2*(r-0.5*sigma**2)/(np.sqrt(data[0][j])))
+            else:
+                segment = accept_path_list[i][j-1:j+2]
+                delta_actions = (changes-segment[1])/(2*sigma**2)*(data[0][j]*(1+(data[0][j]-data[0][j-1])/(2*data[0][j]))*((changes+segment[1]-2*segment[0])/(data[0][j]-data[0][j-1])+(changes+segment[1]-2*price)/(2*data[0][j])-2*(r-0.5*sigma**2)/np.sqrt(data[0][j])) - data[0][j+1]*((2*segment[2]-changes-segment[1])/(data[0][j]-data[0][j-1]) +(segment[2]-price)/data[0][j+1] - 2*(r-0.5*sigma**2)/np.sqrt(data[0][j+1])))
+            p_primes = np.exp(-delta_actions/T)
+            if p_primes > 1:
+                p_primes = 1
+            if rd.uniform(0,1) <= p_primes:
+                N_accept += 1
+                path_choice_1[j] = changes
+        accept_path_list[i+1] = path_choice_1
+        #if len(accept_path_list)<int(n_1):
+        #    T = 1/(1+np.log(1+1.1*len(accept_path_list)))
+        #    if N_accept != 0:
+        #        accept_ratio = N_accept/num_perturbations
+        #        tolerance = tolerance*accept_ratio/0.7
+        #if len(accept_path_list) == int(n_1):
+        #    T_switch = T
+        #if  (int(n_1)<len(accept_path_list) and len(accept_path_list)<int(n_2)):
+        #    T = T_switch*0.9**(len(accept_path_list)-n_1)
+        #    if N_accept != 0:
+        #        accept_ratio = N_accept/num_perturbations
+        #        tolerance = tolerance*accept_ratio/0.3
+        if len(accept_path_list)>= int(n_2):
+            T = 1
+            if N_accept != 0:
+                accept_ratio = N_accept/num_perturbations
+                tolerance = tolerance*accept_ratio/0.7
+        if i%100000 == 0:
+            print('current iteration', i)   
+    return accept_path_list, tolerance
+#%%
+strike = 40
+r = 0.03 
+sigma = 0.2
+x0 = np.log(36)
+mu = r-0.5*sigma**2
+time = np.linspace(0,1,120)
+tau = np.linspace(0,1,120)+60/120
+T = 1
+simulation_counter = 0
+t_corr = 120
+tolerance = 0.01
+#%%
+#for k in range(10):
+batch_counter = 0
+classical_path = mu*time+x0
+semi_cold_path = classical_path + np.array([0]+[rd.uniform(-0.0001, 0.0001) for j in range(len(classical_path)-1)])
+transform = x0 + (semi_cold_path-x0)/np.sqrt(tau)
+initial_paths = transform
+simulation_counter += 1
+for i in range(8):
+    batch_counter += 1
+    start = t.time()
+    data = np.array([tau, initial_paths])
+    a = path_action_minimiser_V1(data, 5000000, tolerance, sigma, r, x0, -1, 0)
+    b = (a[0][1::round(t_corr)]-x0)*np.sqrt(data[0])+x0
+    initial_paths = b[-1]
+    tolerance = a[1]
+    del a 
+    #timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    filename = f"concat_transform_{simulation_counter}{batch_counter}.npy"
+    np.save(filename, b)
+    del filename, b
+    print('simulation count:', simulation_counter)
+    print('batches generated:', batch_counter)
+    execution = t.time() - start
+    print('Time taken to run (seconds):', execution)
+#%%
