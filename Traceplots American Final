@@ -1,0 +1,125 @@
+from multiprocessing import Pool
+import multiprocessing as mp
+import numpy as np
+from numpy.random import Generator, MT19937
+from scipy import optimize
+import matplotlib.pyplot as plt
+from memory_profiler import profile
+import time as t
+from numba import jit, prange
+import random as rd
+#%%
+no_transform_am_seq = np.load('average_payoff_am_no_transform_seq.npy')
+no_transform_am_seq_std = np.load('standev_am_no_transform_seq.npy')
+#%%
+transform_am_seq = np.load('average_payoff_am_transform_seq.npy')
+transform_am_seq_std = np.load('standev_am_transform_seq.npy')
+#%%
+lengths_avg = np.array([len(no_transform_am_seq), len(transform_am_seq)])
+lengths_std = np.array([len(no_transform_am_seq_std),len(transform_am_seq_std)])
+#%%
+min_lengths_avg = min(lengths_avg)
+min_lengths_std = min(lengths_std)
+print('Average min length:', min_lengths_avg, 'Standev min length:', min_lengths_std)
+#%%
+plt.figure(dpi=1000) 
+plt.plot(no_transform_am_seq[:min_lengths_avg], label = 'Average, No Transform, Seq.', alpha = 0.9)
+plt.fill_between(range(len(no_transform_am_seq[:min_lengths_avg])), no_transform_am_seq[:min_lengths_avg] - no_transform_am_seq_std[:min_lengths_avg], no_transform_am_seq[:min_lengths_avg] + no_transform_am_seq_std[:min_lengths_avg], alpha=0.23, label='±1 std. dev., No Transform, Seq.')
+
+plt.plot(transform_am_seq[:min_lengths_avg], label = 'Average, Transform, Seq.', alpha = 0.9)
+plt.fill_between(range(len(transform_am_seq[:min_lengths_avg])), transform_am_seq[:min_lengths_avg] - transform_am_seq_std[:min_lengths_avg], transform_am_seq[:min_lengths_avg] + transform_am_seq_std[:min_lengths_avg], alpha=0.3, label='±1 std. dev., Transform, Seq.')
+
+plt.axhline(4.86, color = 'black', linestyle = 'dashed', label = 'Binomial Model', alpha = 1)
+plt.axhline(4.85, color = 'black', linestyle = 'dotted', label = 'Finite Difference', alpha = 1)
+
+plt.legend(loc ='upper right')
+plt.ylim(0,10)
+plt.title('Trace Plot - Sequential Scheme \n American Put')
+plt.xlabel('# unbiased thermalised paths*(9523)')
+plt.ylabel('Option Price')
+plt.tight_layout()
+plt.grid()
+plt.show()
+#%%
+plt.plot(no_transform_am_seq[30:min_lengths_avg], label = 'Average, No Transform, Seq.', alpha = 0.9)
+plt.fill_between(range(len(no_transform_am_seq[30:min_lengths_avg])), no_transform_am_seq[30:min_lengths_avg] - no_transform_am_seq_std[30:min_lengths_avg], no_transform_am_seq[30:min_lengths_avg] + no_transform_am_seq_std[30:min_lengths_avg], alpha=0.23, label='±1 std. dev., No Transform, Seq.')
+
+plt.plot(transform_am_seq[30:min_lengths_avg], label = 'Average, Transform, Seq.', alpha = 0.9)
+plt.fill_between(range(len(transform_am_seq[30:min_lengths_avg])), transform_am_seq[30:min_lengths_avg] - transform_am_seq_std[30:min_lengths_avg], transform_am_seq[30:min_lengths_avg] + transform_am_seq_std[30:min_lengths_avg], alpha=0.3, label='±1 std. dev., Transform, Seq.')
+
+plt.axhline(4.86, color = 'black', linestyle = 'dashed', label = 'Binomial Model', alpha = 1)
+plt.axhline(4.85, color = 'black', linestyle = 'dotted', label = 'Finite Difference', alpha = 1)
+
+plt.xticks([0,1,2,3,4,5,6], [30,31,32,33,34,35,36])
+plt.ylim(4.6,5)
+#plt.xlim(30,37)
+plt.title('Trace Plot - Sequential Scheme \n American Put')
+plt.xlabel('# unbiased thermalised paths*(9523)')
+plt.ylabel('Option Price')
+plt.tight_layout()
+plt.grid()
+plt.show()
+#%%
+print('No Transform, Seq., Final Payoff:', no_transform_am_seq[-1], 'pm', no_transform_am_seq_std[-1],'Difference from Binomial Model:', np.abs(4.86-no_transform_am_seq[-1])/no_transform_am_seq_std[-1], 'standard deviations')
+print('No Transform, Seq., Final Payoff:', no_transform_am_seq[-1], 'pm', no_transform_am_seq_std[-1],'Difference from Finite Diff:', np.abs(4.85-no_transform_am_seq[-1])/no_transform_am_seq_std[-1], 'standard deviations')
+print('\n')
+print('Transform, Seq., Final Payoff:', transform_am_seq[-1], 'pm', transform_am_seq_std[-1],'Difference from Binomial Model:', np.abs(4.86-transform_am_seq[-1])/no_transform_am_seq_std[-1], 'standard deviations')
+print('Transform, Seq., Final Payoff:', transform_am_seq[-1], 'pm', transform_am_seq_std[-1],'Difference from Finite Diff:', np.abs(4.85-transform_am_seq[-1])/no_transform_am_seq_std[-1], 'standard deviations')
+#%%
+
+no_transform_am_rd = np.load('average_payoff_am_no_transform_rd.npy')
+no_transform_am_rd_std = np.load('standev_am_no_transform_rd.npy')
+#%%
+transform_am_rd = np.load('average_payoff_am_transform_rd.npy')
+transform_am_rd_std = np.load('standev_am_transform_rd.npy')
+#%%
+lengths_avg = np.array([len(no_transform_am_rd), len(transform_am_rd)])
+lengths_std = np.array([len(no_transform_am_rd_std),len(transform_am_rd_std)])
+#%%
+min_lengths_avg = min(lengths_avg)
+min_lengths_std = min(lengths_std)
+print('Average min length:', min_lengths_avg, 'Standev min length:', min_lengths_std)
+#%%
+plt.figure(dpi=1000) 
+plt.plot(no_transform_am_rd[:min_lengths_avg], label = 'Average, No Transform, Rd.', alpha = 0.9)
+plt.fill_between(range(len(no_transform_am_rd[:min_lengths_avg])), no_transform_am_rd[:min_lengths_avg] - no_transform_am_rd_std[:min_lengths_avg], no_transform_am_rd[:min_lengths_avg] + no_transform_am_rd_std[:min_lengths_avg], alpha=0.23, label='±1 std. dev., No Transform, Rd.')
+
+plt.plot(transform_am_rd[:min_lengths_avg], label = 'Average, Transform, Rd.', alpha = 0.9)
+plt.fill_between(range(len(transform_am_rd[:min_lengths_avg])), transform_am_rd[:min_lengths_avg] - transform_am_rd_std[:min_lengths_avg], transform_am_rd[:min_lengths_avg] + transform_am_rd_std[:min_lengths_avg], alpha=0.3, label='±1 std. dev., Transform, Rd.')
+
+plt.axhline(4.86, color = 'black', linestyle = 'dashed', label = 'Binomial Model', alpha = 1)
+plt.axhline(4.85, color = 'black', linestyle = 'dotted', label = 'Finite Difference', alpha = 1)
+
+plt.legend(loc ='upper right')
+plt.ylim(0,10)
+plt.title('Trace Plot - Random-Choice Scheme \n American Put')
+plt.xlabel('# unbiased thermalised paths*(9523)')
+plt.ylabel('Option Price')
+plt.tight_layout()
+plt.grid()
+plt.show()
+#%%
+plt.figure(dpi=1000) 
+plt.plot(no_transform_am_rd[30:min_lengths_avg], label = 'Average, No Transform, Rd.', alpha = 0.9)
+plt.fill_between(range(len(no_transform_am_rd[30:min_lengths_avg])), no_transform_am_rd[30:min_lengths_avg] - no_transform_am_rd_std[30:min_lengths_avg], no_transform_am_rd[30:min_lengths_avg] + no_transform_am_rd_std[30:min_lengths_avg], alpha=0.23, label='±1 std. dev., No Transform, Rd.')
+
+plt.plot(transform_am_rd[30:min_lengths_avg], label = 'Average, Transform, Rd.', alpha = 0.9)
+plt.fill_between(range(len(transform_am_rd[30:min_lengths_avg])), transform_am_rd[30:min_lengths_avg] - transform_am_rd_std[30:min_lengths_avg], transform_am_rd[30:min_lengths_avg] + transform_am_rd_std[30:min_lengths_avg], alpha=0.3, label='±1 std. dev., Transform, Rd.')
+
+plt.axhline(4.86, color = 'black', linestyle = 'dashed', label = 'Binomial Model', alpha = 1)
+plt.axhline(4.85, color = 'black', linestyle = 'dotted', label = 'Finite Difference', alpha = 1)
+
+plt.xticks([0,1,2,3,4,5,6], [30,31,32,33,34,35,36])
+plt.ylim(4.7,5.1)
+plt.title('Trace Plot - Random-Choice Scheme \n American Put')
+plt.xlabel('# unbiased thermalised paths*(9523)')
+plt.ylabel('Option Price')
+plt.tight_layout()
+plt.grid()
+plt.show()
+#%%
+print('No Transform, Rd., Final Payoff:', no_transform_am_rd[-1], 'pm', no_transform_am_rd_std[-1],'Difference from Binomial Model:', np.abs(4.86-no_transform_am_rd[-1])/no_transform_am_rd_std[-1], 'standard deviations')
+print('No Transform, Rd., Final Payoff:', no_transform_am_rd[-1], 'pm', no_transform_am_rd_std[-1],'Difference from Finite Diff:', np.abs(4.85-no_transform_am_rd[-1])/no_transform_am_rd_std[-1], 'standard deviations')
+print('\n')
+print('Transform, Rd., Final Payoff:', transform_am_rd[-1], 'pm', transform_am_rd_std[-1],'Difference from Binomial Model:', np.abs(4.86-transform_am_rd[-1])/no_transform_am_rd_std[-1], 'standard deviations')
+print('Transform, Rd., Final Payoff:', transform_am_rd[-1], 'pm', transform_am_rd_std[-1],'Difference from Finite Diff:', np.abs(4.85-transform_am_rd[-1])/no_transform_am_rd_std[-1], 'standard deviations')
