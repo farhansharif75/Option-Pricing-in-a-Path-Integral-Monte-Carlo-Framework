@@ -1,0 +1,313 @@
+from multiprocessing import Pool
+import multiprocessing as mp
+import numpy as np
+from numpy.random import Generator, MT19937
+from scipy import optimize
+from scipy.special import expit
+import matplotlib.pyplot as plt
+from memory_profiler import profile
+import time as t
+from numba import jit, prange
+import random as rd
+from datetime import datetime
+import decimal
+decimal.getcontext().prec = 20
+#acceptance_ratio_list_seq = []
+#acceptance_ratio_list_rnd = []
+#%%
+acceptance_ratio_list = [0.5,0.6,0.7,0.8]
+acceptance_ratio_list_seq = []
+acceptance_ratio_list_rnd = []
+#%%
+#strike = 40
+#simulation_counter = 0
+#r = 0.03 
+#sigma = 0.2
+#x0 = np.log(36)
+#mu = r-0.5*sigma**2
+#time = np.linspace(0,1,120)
+#T = 1
+#tolerance = 0.01
+#classical_path = mu*time+x0
+#initial_paths = classical_path + np.array([0]+[rd.uniform(-0.1, 0.1) for j in range(len(classical_path)-1)])
+#%%
+def action(path, r, sigma, dt, tau, initial_price):
+    mu = r-0.5*sigma**2
+    x_dot = np.diff(path)/dt
+    lagrangian = ((x_dot-mu)**2)/(2*sigma**2)
+    if len(lagrangian)>1:
+        action = np.trapz(lagrangian, dx = dt)
+    else:
+        action = lagrangian*dt
+    return action
+#%%
+def autocorrelate(O):
+    n = len(O)
+    f = np.fft.fft(O - np.mean(O), n*2)
+    acf = np.fft.ifft(f * np.conjugate(f))[:n].real
+    acf /= acf[0]
+    return acf
+#%%
+def double_exp(theta,a_1,a_2,t_1,t_2):
+    log_term1 = -theta/t_1
+    log_term2 = -theta/t_2
+    double_exp_func = a_1*np.exp(log_term1)+a_2*np.exp(log_term2)
+    return double_exp_func
+#%%
+@jit(nopython = True)
+def path_action_minimiser_V1(data, sweeps, tolerance, sigma, r, price, n_1, n_2):
+    T = 1
+    accept_path_list = np.zeros((sweeps+1, len(data[1])))
+    accept_path_list[0] = data[1]
+    for i in range(sweeps):
+        path_choice_1 = accept_path_list[i].copy()
+        N_accept = 0
+        num_perturbations = 0
+        perturbations = np.array([0]+[rd.uniform(-tolerance, tolerance) for _ in range(len(accept_path_list[i])-1)])
+        for j in range(1,len(accept_path_list[i])):
+            num_perturbations += 1
+            changes = path_choice_1[j]+perturbations[j] 
+            if j == len(accept_path_list[i])-1:
+                segment = accept_path_list[i][j-1:j+1]
+                delta_actions = (changes-segment[1])/(2*sigma**2)*((changes+segment[1]-2*segment[0])/(data[0][j]-data[0][j-1])-2*mu)
+            else:
+                segment = accept_path_list[i][j-1:j+2]
+                delta_actions = (changes-segment[1])/(sigma**2*(data[0][j]-data[0][j-1]))*(changes+segment[1]-segment[0]-segment[2])   
+            if delta_actions<=0:
+               N_accept += 1
+               path_choice_1[j] = changes
+            else:
+                p_primes = np.exp(-delta_actions/T)
+                if rd.uniform(0,1) <= p_primes:
+                    N_accept += 1
+                    path_choice_1[j] = changes
+        accept_path_list[i+1] = path_choice_1
+        if i >= int(n_2):
+            T = 1
+            if N_accept != 0:
+                accept_ratio = N_accept/num_perturbations
+                tolerance = tolerance*accept_ratio/0.8
+        if i%10000 == 0:
+            print('current iteration', i)  
+    return accept_path_list, tolerance
+#%%
+@jit(nopython = True)
+def path_action_minimiser_V2(data, sweeps, tolerance, sigma, r, price, n_1, n_2):
+    T = 1
+    accept_path_list = np.zeros((sweeps+1, len(data[1])))
+    accept_path_list[0] = data[1]
+    for i in range(sweeps):
+        path_choice_1 = accept_path_list[i].copy()
+        N_accept = 0
+        num_perturbations = 0
+        perturbations = np.array([0]+[rd.uniform(-tolerance, tolerance) for _ in range(len(accept_path_list[i])-1)])
+        indices = np.array([0]+[rd.randint(1, len(accept_path_list[i])-1) for _ in range(len(accept_path_list[i])-1)])
+        for j in range(1,len(accept_path_list[i])):
+            num_perturbations += 1
+            changes = path_choice_1[indices[j]]+perturbations[j] 
+            if indices[j] == len(accept_path_list[i])-1:
+                segment = accept_path_list[i][indices[j]-1:indices[j]+1]
+                delta_actions = (changes-segment[1])/(2*sigma**2)*((changes+segment[1]-2*segment[0])/(data[0][indices[j]]-data[0][indices[j]-1])-2*mu)
+            else:
+                segment = accept_path_list[i][indices[j]-1:indices[j]+2]
+                delta_actions = (changes-segment[1])/(sigma**2*(data[0][indices[j]]-data[0][indices[j]-1]))*(changes+segment[1]-segment[0]-segment[2])
+            p_primes = np.exp(-delta_actions/T)
+            if delta_actions<=0:
+                N_accept += 1
+                path_choice_1[indices[j]] = changes
+            else:
+                p_primes = np.exp(-delta_actions/T)
+                if rd.uniform(0,1) <= p_primes:
+                    N_accept += 1
+                    path_choice_1[indices[j]] = changes
+        accept_path_list[i+1] = path_choice_1
+        if i >= int(n_2):
+            T = 1
+            if N_accept != 0:
+                accept_ratio = N_accept/num_perturbations
+                tolerance = tolerance*accept_ratio/0.8
+        if i%10000 == 0:
+            print('current iteration', i)  
+    return accept_path_list, tolerance
+#%%
+strike = 40
+simulation_counter = 0
+r = 0.03 
+sigma = 0.2
+x0 = np.log(36)
+mu = r-0.5*sigma**2
+T = 1
+tolerance_seq = 0.01
+tolerance_rnd = 0.01
+#%%
+N_list = [10,50,100]
+time_list = []
+initial_paths = []
+for i in range(len(N_list)):
+    time = np.linspace(0,1,N_list[i])
+    print(len(time))
+    time_list.append(time)
+    classical_path = mu*time+x0
+    initial_path = classical_path + np.array([0]+[rd.uniform(-0.001, 0.001) for j in range(len(classical_path)-1)])
+    initial_paths.append(initial_path)
+#%%
+auto_list_seq = []
+for i in range(len(N_list)):
+    data = np.array([time_list[i], initial_paths[i]])
+    a = path_action_minimiser_V1(data=data, sweeps = 100000, tolerance=tolerance_seq, sigma=sigma, r=r, price=x0, n_1 = -1, n_2 = 0)
+    actions_seq = np.array([action(a[0][j], r, sigma, time_list[i][1]-time_list[i][0], time_list[i], x0) for j in range(1,len(a[0]))])/action(a[0][0], r, sigma, time_list[i][1]-time_list[i][0], time_list[i], x0)
+    auto_seq = autocorrelate(actions_seq)
+    auto_list_seq.append(np.abs(auto_seq))
+    #b = path_action_minimiser_V2(data=data, sweeps = 500000, tolerance=tolerance, sigma=sigma, r=r, price=x0, n_1 = -1, n_2 = 0)
+    #actions_rnd = np.array([action(b[0][j], r, sigma, time[1]-time[0], time, x0) for j in range(1,len(b[0]))])/action(b[0][0], r, sigma, time[1]-time[0], time, x0)
+    #auto_rnd = autocorrelate(actions_rnd)
+    #auto_list.append(np.abs(auto_rnd)
+#%%
+for i in range(len(auto_list_seq)):
+    plt.plot(auto_list_seq[i], label = f'N = {N_list[i]}')
+plt.title('Autocorrelations vs # Sweeps - Sequential Scheme')
+plt.ylabel('$|A(\omega)|$')
+plt.xlabel('$\omega$')
+plt.yscale('log')
+plt.xlim(0, 1000)
+plt.ylim(1e-5,1)
+plt.tight_layout()
+plt.legend()
+plt.show()
+#%%
+auto_list_rnd = []
+for i in range(len(N_list)):
+    data = np.array([time_list[i], initial_paths[i]])
+    b = path_action_minimiser_V2(data=data, sweeps = 100000, tolerance=tolerance_rnd, sigma=sigma, r=r, price=x0, n_1 = -1, n_2 = 0)
+    actions_rnd = np.array([action(b[0][j], r, sigma, time_list[i][1]-time_list[i][0], time_list[i], x0) for j in range(1,len(b[0]))])/action(b[0][0], r, sigma, time_list[i][1]-time_list[i][0], time_list[i], x0)
+    auto_rnd = autocorrelate(actions_rnd)
+    auto_list_rnd.append(np.abs(auto_rnd))
+#%%
+for i in range(len(auto_list_rnd)):
+    plt.plot(auto_list_rnd[i], label = f'N = {N_list[i]}',)
+plt.title('Autocorrelations vs # Sweeps - Random-Choice Scheme')
+plt.ylabel('$|A(\omega)|$')
+plt.xlabel('$\omega$')
+plt.yscale('log')
+plt.xlim(0,1000)
+plt.ylim(1e-5,1)
+plt.tight_layout()
+plt.legend(loc = 'lower left')
+plt.show()
+#%%
+#%%
+times = np.linspace(0,1,80)
+classical_path = mu*times+x0
+initial_path = classical_path + np.array([0]+[rd.uniform(-0.001, 0.001) for j in range(len(classical_path)-1)])
+data = np.array([times, initial_path])
+a = path_action_minimiser_V1(data=data, sweeps = 100000, tolerance=tolerance_seq, sigma=sigma, r=r, price=x0, n_1 = -1, n_2 = 0)
+actions_seq = np.array([action(a[0][j], r, sigma, times[1]-times[0], times[2], x0) for j in range(1,len(a[0]))])/action(a[0][0], r, sigma, times[1]-times[0], times, x0)
+b = path_action_minimiser_V2(data=data, sweeps = 100000, tolerance=tolerance_rnd, sigma=sigma, r=r, price=x0, n_1 = -1, n_2 = 0)
+actions_rnd = np.array([action(b[0][j], r, sigma, times[1]-times[0], times, x0) for j in range(1,len(b[0]))])/action(b[0][0], r, sigma, times[1]-times[0], times, x0)
+#%%
+auto_seq = autocorrelate(actions_seq)
+auto_rnd = autocorrelate(actions_rnd)
+plt.plot(np.abs(auto_seq), label = 'Sequential Scheme', color = 'red')
+plt.plot(np.abs(auto_rnd), label = 'Random-Choice Scheme', color = 'blue')
+plt.title('Autocorrelations vs. # Sweeps')
+plt.yscale('log')
+plt.xlabel('$\omega$')
+plt.ylabel('$|A(\omega)|$')
+plt.legend()
+plt.xlim(0,101)
+plt.ylim(0.01,1)
+plt.tight_layout()
+plt.show()
+#%%
+acceptance_ratio_list_seq.append(auto_seq)
+acceptance_ratio_list_rnd.append(auto_rnd)
+#%%
+print(len(acceptance_ratio_list_seq))
+print(len(acceptance_ratio_list_rnd))
+'''#%%
+cutoff_index_seq = 20
+#print(cutoff_index_seq)
+cutoff_index_rnd = 30
+#print(cutoff_index_rnd)
+#%%
+initial_guess_seq = [0.5, 0.5, 1, 30]
+initial_guess_rnd = [0.5, 0.5, 1, 30]
+popt_dexp1, pcov_dexp1 = optimize.curve_fit(double_exp, np.arange(cutoff_index_seq), np.abs(auto_seq)[0:cutoff_index_seq], p0 = initial_guess_seq,  maxfev = 100000)
+popt_dexp2, pcov_dexp2 = optimize.curve_fit(double_exp, np.arange(cutoff_index_rnd), np.abs(auto_rnd)[0:cutoff_index_rnd], p0 = initial_guess_rnd, maxfev = 100000)
+t_corr_exp_seq = np.max(popt_dexp1[2:])
+t_corr_exp_rnd = np.max(popt_dexp2[2:])
+print('Exponential act sequential scheme:', t_corr_exp_seq)
+print('Exponential act random-choice scheme:', t_corr_exp_rnd)
+#%%
+plt.plot(double_exp(np.arange(cutoff_index_seq), popt_dexp1[0], popt_dexp1[1], popt_dexp1[2], popt_dexp1[3]), label = 'Double Exponential Fit', linestyle = 'dashed', color = 'black')
+plt.plot(np.absolute(auto_seq), label = 'Sequential Scheme', color = 'red')
+plt.xlim(0,cutoff_index_seq-1)
+plt.yscale('log')
+plt.ylim(0.05,1)
+plt.title('Double Exponential Fit - Sequential Scheme')
+plt.ylabel('$|A(\omega)|$')
+plt.xlabel('$\omega$')
+plt.legend()
+plt.show()
+#%%
+plt.plot(double_exp(np.arange(cutoff_index_rnd), popt_dexp2[0], popt_dexp2[1], popt_dexp2[2], popt_dexp2[3]), label = 'Double Exponential Fit', linestyle = 'dashed', color = 'black')
+plt.plot(np.absolute(auto_rnd), label = 'Random-choice Scheme', color = 'blue')
+plt.xlim(0,cutoff_index_rnd-1)
+plt.yscale('log')
+plt.title('Double Exponential Fit - Random-Choice Scheme')
+plt.ylabel('$|A(\omega)|$')
+plt.xlabel('$\omega$')
+plt.ylim(0.05,1)
+plt.legend()
+plt.show()
+#%%
+for i in range(len(acceptance_ratio_list)):
+    plt.plot(np.abs(acceptance_ratio_list_seq[i]), label = f'Ratio = {acceptance_ratio_list[i]}')
+plt.title('Autocorrelations for Different Acceptance Ratios')
+plt.yscale('log')
+plt.xlabel('$\omega$')
+plt.ylabel('$|A(\omega)|$')
+plt.legend()
+plt.xlim(0,101)
+plt.ylim(0.01,1)
+plt.tight_layout()
+plt.show()
+#%%
+for i in range(len(acceptance_ratio_list_seq)):
+    plt.plot(np.abs(acceptance_ratio_list_rnd[i]), label = f'Ratio = {acceptance_ratio_list[i]}')
+plt.title('Autocorrelations for Different Acceptance Ratios')
+plt.yscale('log')
+plt.xlabel('$\omega$')
+plt.ylabel('$|A(\omega)|$')
+plt.legend()
+plt.xlim(0,101)
+plt.ylim(0.01,1)
+plt.tight_layout()
+plt.show()
+#%%'''
+#%%
+acceptance_ratio_list = [0.5,0.6,0.7,0.8]
+for i in range(len(acceptance_ratio_list_seq)):
+    plt.plot(acceptance_ratio_list_seq[i], label = f'Ratio = {acceptance_ratio_list[i]}')
+plt.title('Sequential')
+plt.yscale('log')
+plt.xlabel('$\omega$')
+plt.ylabel('$|A(\omega)|$')
+plt.legend()
+plt.xlim(0,50)
+plt.ylim(0.01,1)
+plt.tight_layout()
+plt.show()
+#%%
+acceptance_ratio_list = [0.5,0.6,0.7,0.8]
+for i in range(len(acceptance_ratio_list_rnd)):
+    plt.plot(acceptance_ratio_list_rnd[i], label = f'Ratio = {acceptance_ratio_list[i]}')
+plt.title('Random-choice')
+plt.yscale('log')
+plt.xlabel('$\omega$')
+plt.ylabel('$|A(\omega)|$')
+plt.legend()
+plt.xlim(0,50)
+plt.ylim(0.01,1)
+plt.tight_layout()
+plt.show()
